@@ -7,7 +7,7 @@ from production.agents.tools import (
     escalate_to_human,
     send_response
 )
-from production.services.prompt_builder import build_system_prompt
+from production.repositories.prompt_builder import build_system_prompt
 from prototype import generate_empathy_holding
 
 agent = Agent(

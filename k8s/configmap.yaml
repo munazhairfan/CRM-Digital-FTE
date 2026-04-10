@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flowforge-fte-config
+  namespace: flowforge-fte
+data:
+  DATABASE_HOST: "postgres-service"
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: "flowforge_db"
+  REPORT_ADMIN_EMAIL: "admin@flowforge.com"
+  GMAIL_TOKEN_PATH: "/app/token.json"
+  TWILIO_WHATSAPP_NUMBER: "whatsapp:+14155238886"

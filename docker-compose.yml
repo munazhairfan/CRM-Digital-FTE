@@ -14,11 +14,10 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   # ---------------------------------------------------------
-  # KAFKA (Message Queue)
+  # KAFKA (Message Queue - Optional)
   # ---------------------------------------------------------
   kafka:
     image: apache/kafka:3.7.2
-    container_name: kafka
     ports:
       - "9092:9092"
     environment:
@@ -29,14 +28,13 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
   # ---------------------------------------------------------
   # WEB APP (FastAPI)
   # ---------------------------------------------------------
   web:
     build: .
-    command: uvicorn production.main:app --host 0.0.0.0 --port 8000
+    command: uvicorn production.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
     environment:
@@ -50,23 +48,9 @@ services:
       - REPORT_ADMIN_EMAIL=${REPORT_ADMIN_EMAIL}
     volumes:
       - ./token.json:/app/token.json
+      - .:/app
     depends_on:
       - db
-      - kafka
-
-  # ---------------------------------------------------------
-  # WORKER (Kafka Consumer - Background AI Processing)
-  # ---------------------------------------------------------
-  worker:
-    build: .
-    command: python production/workers/kafka_consumer.py
-    environment:
-      - DATABASE_URL=postgresql://flowforge:securepassword@db:5432/flowforge_db
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - GROQ_API_KEY=${GROQ_API_KEY}
-    depends_on:
-      - db
-      - kafka
 
 volumes:
   postgres_data:

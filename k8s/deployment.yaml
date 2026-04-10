@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flowforge-fte
+  namespace: flowforge-fte
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: flowforge-fte
+  template:
+    metadata:
+      labels:
+        app: flowforge-fte
+    spec:
+      containers:
+        - name: web
+          image: flowforge-fte:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: flowforge-fte-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: flowforge-fte-secrets
+                  key: DATABASE_URL
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: flowforge-fte-secrets
+                  key: GROQ_API_KEY
+            - name: TWILIO_ACCOUNT_SID
+              valueFrom:
+                secretKeyRef:
+                  name: flowforge-fte-secrets
+                  key: TWILIO_ACCOUNT_SID
+            - name: TWILIO_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: flowforge-fte-secrets
+                  key: TWILIO_AUTH_TOKEN
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"

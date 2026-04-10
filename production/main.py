@@ -3,9 +3,10 @@ from fastapi import FastAPI, Request, HTTPException
 from contextlib import asynccontextmanager
 from twilio.rest import Client
 import os
+import asyncio
+import asyncpg
 from production.ingestion.gmail import GmailIngestion
 from production.clients.db_client import DatabaseClient
-from production.clients.kafka_client import kafka_producer
 from production.ingestion.web_form import WebFormIngestion, SupportFormSubmission
 from production.ingestion.whatsapp import WhatsAppIngestion
 from production.services.agent_service import process_customer_message
@@ -19,27 +20,55 @@ from production.workers.message_processor import (
 )
 
 
+async def run_migrations():
+    """Auto-create tables if they don't exist on startup."""
+    try:
+        async with DatabaseClient.get_connection() as conn:
+            # 1. Create conversation_summaries table (for memory)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS conversation_summaries (
+                    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    conversation_id     UUID,
+                    customer_id         UUID,
+                    channel             VARCHAR(50) NOT NULL,
+                    summary             TEXT NOT NULL,
+                    created_at          TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                );
+            """)
+            
+            # 2. Add plan_tier metadata comment (ignorable if exists)
+            try:
+                await conn.execute("COMMENT ON COLUMN customers.metadata IS 'JSONB bag. Keys: plan_tier, company, notes';")
+            except Exception:
+                pass
+                
+            print("✅ Database Migrations Applied")
+    except Exception as e:
+        print(f"⚠️ Migration skipped (DB might be offline): {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. Startup - try to connect to DB, continue even if it fails
+    # 1. Startup
     try:
-        await DatabaseClient.initialize(os.getenv("DATABASE_URL"))
+        await asyncio.wait_for(DatabaseClient.initialize(os.getenv("DATABASE_URL")), timeout=10.0)
         print("✅ Database connected")
+        await run_migrations() # Run auto-migration
     except Exception as e:
         print(f"⚠️  DB unavailable (will use in-memory fallback): {e}")
-        
+
     # 2. Start the Cron Scheduler
-    start_scheduler() 
-    
+    start_scheduler()
+
     print("🚀 FlowForge Customer Success FTE started")
     yield
-    
+
     # 3. Shutdown
     try:
         await DatabaseClient.close()
     except Exception:
         pass
-    
+
     # 4. Stop the Cron Scheduler
     stop_scheduler()
 
@@ -123,8 +152,14 @@ async def health():
 @app.post("/test/message")
 async def test_message(raw: dict):
     """Send any message and see the full agent run"""
-    result = await process_incoming_message(raw)
-    return result
+    try:
+        result = await process_incoming_message(raw)
+        return result
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        print(f"🚨 SERVER ERROR: {e}\n{tb}") # Print to server console
+        return {"error": str(e), "traceback": tb}
 
 
 @app.get("/test/whatsapp")
@@ -155,34 +190,17 @@ async def gmail_webhook(request: Request):
 
     results = []
     for msg in messages:
-        # Prepare payload for Kafka
-        kafka_payload = {
+        # For now, process synchronously with Memory Service
+        msg_metadata = msg.get("metadata", {})
+        msg_metadata["customer_email"] = msg.get("customer_email") or msg_metadata.get("from")
+            
+        agent_result = await process_customer_message({
             "channel": "email",
             "content": msg["content"],
             "customer_name": msg["customer_name"],
-            "metadata": msg["metadata"],
-            "channel_message_id": msg.get("channel_message_id"),
-            "thread_id": msg.get("thread_id"),
-            "subject": msg.get("subject"),
-            "processed": False
-        }
-        
-        # Publish to Kafka
-        try:
-            await kafka_producer.send_message(kafka_payload)
-        except Exception as e:
-            print(f"⚠️ Failed to publish email to Kafka: {e}")
-            # Fallback to sync processing
-            agent_result = await process_customer_message({
-                "channel": "email",
-                "content": msg["content"],
-                "customer_name": msg["customer_name"],
-                "metadata": msg["metadata"]
-            })
-            results.append({"status": "processed_sync", "email": msg["customer_email"]})
-            continue
-
-        results.append({"status": "published_to_kafka", "email": msg["customer_email"]})
+            "metadata": msg_metadata
+        })
+        results.append({"status": "processed_sync", "email": msg["customer_email"]})
 
     return {"status": "processed", "messages": len(results), "results": results}
 

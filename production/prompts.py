@@ -435,6 +435,16 @@ def build_system_prompt(ticket: Ticket, conversation_history: list[dict] | None 
         Use this context to understand follow-ups and references to previous messages.
         """
 
+    # --- NEW: Inject Persistent Context from Metadata (Cross-Channel Memory) ---
+    persistent_context = ticket.metadata.get("persistent_context", "")
+    cross_channel_section = ""
+    if persistent_context:
+        cross_channel_section = f"""\
+        ## 🧠 Cross-Channel Memory (Last 7 Days)
+        This customer has a history across different channels. Use this context to maintain continuity:
+{persistent_context}
+        """
+
     return textwrap.dedent(f"""\
         You are the FlowForge Customer Success AI agent.
 
@@ -452,6 +462,7 @@ def build_system_prompt(ticket: Ticket, conversation_history: list[dict] | None 
         ## Brand Voice & Tone
         {BRAND_VOICE}
 {history_section}
+{cross_channel_section}
         ## Current Customer Message
         Channel: {ticket.channel}
         Customer: {ticket.customer_name}

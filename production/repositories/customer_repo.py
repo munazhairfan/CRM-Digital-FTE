@@ -1,4 +1,4 @@
-# production/repositories/customer_repo.py
+import json
 from uuid import UUID
 from typing import Optional
 import asyncpg
@@ -11,8 +11,8 @@ class CustomerRepository:
             # Try to find by email or phone first
             row = await conn.fetchrow(
                 """
-                SELECT id, email, phone, name 
-                FROM customers 
+                SELECT id, email, phone, name
+                FROM customers
                 WHERE email = $1 OR phone = $2
                 """,
                 customer_data.email,
@@ -23,15 +23,18 @@ class CustomerRepository:
                 return dict(row)
 
             # Create new customer
+            # Fix: Explicitly serialize metadata to JSON string
+            meta_json = json.dumps(customer_data.metadata or {})
+            
             new_customer = await conn.fetchrow(
                 """
                 INSERT INTO customers (email, phone, name, metadata)
-                VALUES ($1, $2, $3, $4)
+                VALUES ($1, $2, $3, $4::jsonb)
                 RETURNING id, email, phone, name
                 """,
                 customer_data.email,
                 customer_data.phone,
                 customer_data.name,
-                customer_data.metadata,
+                meta_json,
             )
             return dict(new_customer)
